@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Midnight Floor - Three.js</title>
+    <style>
+        body { margin: 0; overflow: hidden; background: #000; font-family: 'Courier New', monospace; }
+        #overlay { position: absolute; width: 100%; height: 100%; background: black; color: white; 
+                   display: flex; flex-direction: column; justify-content: center; align-items: center; z-index: 20; }
+        #ui { position: absolute; top: 10px; left: 10px; color: #f00; font-weight: bold; pointer-events: none; }
+        #vignette { position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+                    box-shadow: inset 0 0 150px rgba(0,0,0,0.9); pointer-events: none; }
+        button { padding: 15px 40px; background: #400; color: white; border: 1px solid red; cursor: pointer; }
+    </style>
+</head>
+<body>
+
+    <div id="overlay">
+        <h1>STAY IN THE LIGHT</h1>
+        <p>The 13.5th Floor is not safe.</p>
+        <button onclick="startGame()">WAKE UP</button>
+    </div>
+    
+    <div id="ui">BATTERY: 100% | FLOOR: 13.5</div>
+    <div id="vignette"></div>
+
+    <script type="importmap">
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
+    </script>
+
+    <script type="module">
+        import * as THREE from 'three';
+
+        let scene, camera, renderer, monster, clock;
+        let hallwayLights = [];
+        let moveForward = false;
+        let gameActive = false;
+        let player = new THREE.Group();
+
+        function init() {
+            scene = new THREE.Scene();
+            scene.fog = new THREE.FogExp2(0x050505, 0.2); // Thicker fog for horror
+
+            camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+            player.add(camera);
+            player.position.y = 1.6;
+            scene.add(player);
+
+            renderer = new THREE.WebGLRenderer({ antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            clock = new THREE.Clock();
+
+            // Build the Infinite-feeling Hallway
+            const wallMat = new THREE.MeshStandardMaterial({ color: 0x333322 });
+            const carpetMat = new THREE.MeshStandardMaterial({ color: 0x1a0505 }); // Dark red
+
+            // Floor & Ceiling
+            const planeGeo = new THREE.PlaneGeometry(5, 200);
+            const floor = new THREE.Mesh(planeGeo, carpetMat);
+            floor.rotation.x = -Math.PI / 2;
+            scene.add(floor);
+
+            const ceiling = new THREE.Mesh(planeGeo, wallMat);
+            ceiling.position.y = 3;
+            ceiling.rotation.x = Math.PI / 2;
+            scene.add(ceiling);
+
+            // Left & Right Walls
+            const wallGeo = new THREE.PlaneGeometry(200, 3);
+            const lWall = new THREE.Mesh(wallGeo, wallMat);
+            lWall.position.set(-2.5, 1.5, 0);
+            lWall.rotation.y = Math.PI / 2;
+            scene.add(lWall);
+
+            const rWall = lWall.clone();
+            rWall.position.x = 2.5;
+            rWall.rotation.y = -Math.PI / 2;
+            scene.add(rWall);
+
+            // Lights with Flicker Logic
+            for(let i = 0; i < 15; i++) {
+                let pLight = new THREE.PointLight(0xfff0aa, 1.5, 12);
+                pLight.position.set(0, 2.8, -i * 12);
+                scene.add(pLight);
+                hallwayLights.push(pLight);
+            }
+
+            // The Concierge
+            const monsterGeo = new THREE.CapsuleGeometry(0.4, 1.8, 4, 8);
+            const monsterMat = new THREE.MeshBasicMaterial({ color: 0x000000 });
+            monster = new THREE.Mesh(monsterGeo, monsterMat);
+            monster.position.set(0, 1.1, -40);
+            scene.add(monster);
+
+            setupControls();
+            animate();
+        }
+
+        function setupControls() {
+            window.addEventListener('keydown', (e) => { if(e.code === 'KeyW') moveForward = true; });
+            window.addEventListener('keyup', (e) => { if(e.code === 'KeyW') moveForward = false; });
+            // Touch support for mobile
+            window.addEventListener('touchstart', () => { moveForward = true; });
+            window.addEventListener('touchend', () => { moveForward = false; });
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            if(!gameActive) return;
+
+            const time = clock.getElapsedTime();
+
+            // Movement
+            if(moveForward) player.position.z -= 0.08;
+
+            // 1. Flickering Light Logic
+            hallwayLights.forEach((light, index) => {
+                // Randomly "stutter" the light intensity
+                if (Math.random() > 0.95) {
+                    light.intensity = Math.random() * 2;
+                }
+                // Occasionally kill the light for a second
+                if (Math.sin(time * 2 + index) < -0.98) {
+                    light.intensity = 0;
+                }
+            });
+
+            // 2. Monster AI
+            // Creeps closer. Moves 2x faster if current light is off
+            let dist = player.position.distanceTo(monster.position);
+            let speed = (Math.random() > 0.8) ? 0.15 : 0.04; 
+            monster.position.z += speed;
+
+            // 3. Screen Shake (Sanity)
+            if (dist < 10) {
+                camera.position.x = Math.sin(time * 20) * (0.05 / dist);
+                camera.position.y = Math.cos(time * 20) * (0.05 / dist);
+            }
+
+            // Game Over
+            if (dist < 1.5) {
+                gameActive = false;
+                alert("STAY OUT OF THE DARK.");
+                location.reload();
+            }
+
+            renderer.render(scene, camera);
+        }
+
+        window.startGame = () => {
+            document.getElementById('overlay').style.display = 'none';
+            gameActive = true;
+        };
+
+        init();
+    </script>
+</body>
+</html>
